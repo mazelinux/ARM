@@ -1,0 +1,388 @@
+#!/bin/bash
+
+#
+# for android_4.4.2_r1_s89
+# Based on Cooper's sciript : /scratch/git/build_android_4.***.git
+# Usage: sudo ./android_4.4.2_r1_s89.sh
+#
+
+
+#You should change the RELEASE PATH when the the PTAH changed,and the RELEASE PATH default is DMA_BUF!
+    MALI_SVN_RELEASE_PATH=http://trd-svn1.trondheim.arm.com/svn/mpd/graphics/sw/S0003-drivers/projects/PR400/branches/mjollnir_r5p0-01rel0
+    MALI_REVISION=HEAD 
+    MALI_SVN_PATH=http://cam-svn4.cambridge.arm.com/svn/mpd/graphics/sw/S0003-drivers/projects/PR400/trunk
+    MALI_KO_TARGET_PLATFORM=odroidq
+    ROOT_DIR=$(pwd)
+#don't modfiy
+    AndroidEdition=android_4.4.2_r1
+    AndroidPlatform=s89
+    ARCH=arm
+    SEC_PRODUCT=mali400
+    CPU_JOB_NUM=$(grep -c processor /proc/cpuinfo)
+    CONFIG_DDK=release
+    CROSS_COMPILE=arm-linux-gnueabihf-
+    DEVICE_DIR=$ROOT_DIR/device
+    DEVICE_TREE="meson8_skt.dtd meson8_skt.dtb"
+    DEVICE_GIT=/scratch/git/device_s89_config.git
+    DNS_UPDATE=DNS
+    KERNEL_DIR=$ROOT_DIR/kernel
+    KERNEL_GIT=/scratch/git/kernel_android_3.10.10.git
+    KERNEL_BRANCH=master
+    KERNEL_CONFIG=our_s89_defconfig
+    KERNEL_IMAGE=uImage
+    LUNCH_ENG=mpd_mali400-eng
+    OUT_DIR="$ROOT_DIR/out/target/product/$SEC_PRODUCT"
+    TARGET_PLATFORM=meson8
+    UBOOT_GIT=
+    VARIANT=mali450-r1p1-linux-android-gles11-gles20-rgb_is_xrgb-max_pp_split_count_4-kitkat-dma_buf
+    VARIANT_MEMBACKEND=dma_buf
+    PATCH_GIT=/scratch/git/s89_patch.git/
+#####################################################################
+#        Some General Use Function                                  #
+#####################################################################
+function info()
+{
+    echo -e "\033[1;40;36m$1\033[0m"
+}
+
+
+function error()
+{
+    echo -e "\033[1;31m$1\033[0m" 1>&2
+}
+
+
+function check_exit()
+{
+    if [ $? != 0 ];then
+        error "something nasty happened"
+        exit $?
+    fi
+}
+
+
+#####################################################################
+#         stage    1      Function                                  #
+#####################################################################
+function confirm_android_platform()
+{
+        info "*******************************"
+        info "* Please check your configure *"
+        info "*******************************"
+
+        echo "Android Edition is $AndroidEdition and Platform is $AndroidPlatform"
+        read -e -p "CONFIG_DDK=" -i "$CONFIG_DDK" CONFIG_DDK
+}
+
+
+#####################################################################
+#         stage    2      Function                                  #
+#####################################################################
+function checkout_android_code()
+{
+        info "**************************"
+        info "* Checking out android...*"
+        info "**************************"
+        tar -xvf "/scratch/android_aosp_orig/${AndroidEdition}.tar"
+#        mv android_*/* ./
+#        rm -r android_*
+}
+
+
+function checkout_kernel()
+{
+    if  [[ $KERNEL_GIT != '' ]];then
+        info "**************************"
+        info "* Checking out kernel... *"
+        info "**************************"
+        cd $ROOT_DIR
+        rm -rf kernel
+        git clone $KERNEL_GIT  -b $KERNEL_BRANCH kernel
+        check_exit
+    fi
+
+}
+
+
+function checkout_device_config()
+{
+    if [[ $DEVICE_GIT != "" ]];then
+        info "**************************"
+        info "* Checking out device/config..."
+        info "**************************"
+        cd $ROOT_DIR/device
+        rm -rf mpd
+        git clone $DEVICE_GIT  mpd
+        check_exit
+    fi
+}
+
+
+function checkout_mali()
+{
+        info "**************************"
+        info "* Checking out mali DDK..."
+        info "**************************"
+        mkdir -p "$ROOT_DIR/hardware/arm/"
+        cd $ROOT_DIR/hardware/arm/
+###1
+# svn checkout -r $MALI_REVISION $MALI_SVN_PATH mali
+###1   
+        cp -rf /work/trunk mali
+        check_exit 
+}
+
+
+function checkout_gralloc()
+{
+        info "**************************"
+        info "* Checking out gralloc..."
+        info "**************************"
+        cd "$ROOT_DIR/hardware/libhardware"    
+        rm -rf gralloc
+        cp -r "$ROOT_DIR/hardware/arm/mali/src/egl/android/gralloc" .
+        check_exit
+        sed -i 's/\(#define\s*GRALLOC_ARM_UMP_MODULE\s*\)[0-9]*/\10/' "$ROOT_DIR/hardware/arm/mali/src/egl/android/gralloc/gralloc_priv.h"
+        sed -i 's/\(#define\s*GRALLOC_ARM_DMA_BUF_MODULE\s*\)[0-9]*/\11/' "$ROOT_DIR/hardware/arm/mali/src/egl/android/gralloc/gralloc_priv.h"
+        sed -i 's/SHARED_MEM_LIBS := libUMP/SHARED_MEM_LIBS := libion libhardware #libUMP/g' "$ROOT_DIR/hardware/arm/mali/src/egl/android/gralloc/Android.mk"
+        check_exit 
+}
+
+
+function apply_patches() 
+{
+        cd $ROOT_DIR
+        info "**************************"
+        info "* Patching Misc Patch."
+        info "**************************"
+    if [[ $PATCH_GIT != "" ]];then
+        rm -rf patch_tmp
+        mkdir patch
+        for url in `echo $PATCH_GIT`;do
+            git clone $url patch_tmp
+            mv patch_tmp/* patch/
+            rm -rf patch_tmp
+        done
+        cd patch
+        rm ddk.patch
+        for i in `ls`; do 
+            patch -p0 < $i; 
+        done
+        check_exit
+        cd $ROOT_DIR
+    fi
+}
+
+
+function setup_environment()
+{
+        info "**************************"
+        info "* Set Environment..."
+        info "**************************"
+        cd $ROOT_DIR
+        source build/envsetup.sh
+        lunch $LUNCH_ENG
+}
+
+
+#####################################################################
+#         stage    3      Function                                  #
+#####################################################################
+function build_kernel()
+{
+        info "**************************"
+        info "* Building kernel..."
+        info "**************************"
+        cd $KERNEL_DIR
+        ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE  make distclean
+        ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE  make $KERNEL_CONFIG
+        ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE  make $KERNEL_IMAGE -j$CPU_JOB_NUM
+        check_exit
+    for i in `echo $DEVICE_TREE`;do
+        ARCH=$ARCH CROSS_COMPILE=$CROSS_COMPILE make $i
+    done
+}
+
+
+function build_android()
+{
+        info "**************************"
+        info "* Building Android ..."
+        info "**************************"
+        START_TIME=`date +%s`
+        cd $ROOT_DIR
+        mm  -j$CPU_JOB_NUM
+        check_exit
+        END_TIME=`date +%s`
+        let "ELAPSED_TIME=$END_TIME-$START_TIME"
+        echo "Total compile time is $ELAPSED_TIME seconds"
+}
+
+
+function mali_generate_android_mk()
+{
+        info "**************************"
+        info "* Generate Android.mk according to VARIANT..."
+        info "**************************"
+        cd "$ROOT_DIR/hardware/arm/mali"
+        rm -rf Android.mk
+        TARGET_PLATFORM=odroidq
+        TARGET_TOOLCHAIN=arm-linux-gcc
+        TARGET_PLATFORM=$TARGET_PLATFORM TARGET_TOOLCHAIN=$TARGET_TOOLCHAIN CONFIG=$CONFIG_DDK VARIANT=$VARIANT make
+        check_exit
+}
+
+
+function build_gralloc()
+{
+        info "**************************"
+        info "* Building Gralloc ......."
+        info "**************************"
+        cd "$ROOT_DIR/system/core/libion"
+        mm -j$CPU_JOB_NUM
+        cd "$ROOT_DIR/hardware/arm/mali/src/egl/android/gralloc"
+        mm -j$CPU_JOB_NUM
+        check_exit
+}
+
+
+function build_mali_ko()
+{
+        info "**************************"
+        info "* Building mali.ko..."
+        info "**************************"
+        cd $ROOT_DIR/hardware/arm/mali/src/devicedrv/mali
+        USING_DT=0
+        USING_UMP=0
+        ARCH=arm
+        cp -r $ROOT_DIR/kernel/arch/arm/mach-exynos/include/mach/ $ROOT_DIR/kernel/include/
+        cp -r $ROOT_DIR/kernel/arch/arm/plat-samsung/include/plat/ $ROOT_DIR/kernel/include/
+        TARGET_PLATFORM=$MALI_KO_TARGET_PLATFORM ARCH=$ARCH KDIR=$KERNEL_DIR BUILD=$CONFIG_DDK USING_UMP=$USING_UMP USING_DT=$USING_DT CROSS_COMPILE=$CROSS_COMPILE make -j$CPU_JOB_NUM
+        check_exit
+        rm -rf $ROOT_DIR/kernel/include/mach/
+        rm -rf $ROOT_DIR/kernel/include/plat/
+        chmod 600 $ROOT_DIR/hardware/arm/mali/src/devicedrv/mali/mali.ko
+    if [[ ! -d "$OUT_DIR/system/lib/modules" ]];then
+        mkdir -p $OUT_DIR/system/lib/modules/
+    fi
+        cp $ROOT_DIR/hardware/arm/mali/src/devicedrv/mali/mali.ko $OUT_DIR/system/lib/modules/
+}
+
+
+function retrive_ddk_build()
+{
+        info "**************************"
+        info "* Building DDK ..."
+        info "**************************"
+        cd $ROOT_DIR
+        build_mali_ko
+}
+
+
+function add_dns_tool()
+{
+        info "**************************"
+        info "* Add_dns_tool ..."
+        info "**************************"
+    if [[ $DNS_UPDATE != "" ]];then
+        cp /scratch/android_aosp_orig/dns_tool/dnsproxy2 $OUT_DIR/system/bin/
+        cp /scratch/android_aosp_orig/dns_tool/20dnsproxy2 $OUT_DIR/system/bin/
+    fi
+}
+
+
+#####################################################################
+#         stage    4      Function                                  #
+#####################################################################
+function gengerate_images()
+{
+        ./flash_sdcard.sh
+}
+
+
+#####################################################################
+#         mali_build_ddk                                            #
+#####################################################################
+function mali_build_ddk()
+{
+        cd "$ROOT_DIR/hardware/arm/mali"
+        mm -B -j$CPU_JOB_NUM
+        check_exit
+}
+
+
+######################################################
+#   stage 1. Make the user to confirm the basic args #
+######################################################
+function stage1_environment_args_set_up()
+{
+        confirm_android_platform
+}
+
+######################################################
+#   stage 2. Download and patch the source code      #
+######################################################
+function stage2_download_source_code()
+{
+        checkout_android_code
+        checkout_kernel
+        checkout_device_config
+        checkout_mali
+        checkout_gralloc
+        apply_patches
+        setup_environment
+}
+
+######################################################
+#   stage 3. Build Kernel Android and DDK            #
+######################################################
+function stage3_build_source_code()
+{
+        setup_environment
+        mali_generate_android_mk
+        build_kernel
+        retrive_ddk_build
+        build_android
+        build_gralloc
+        add_dns_tool
+}
+
+######################################################
+#   stage 4. Generate images                         #
+######################################################
+function stage4_generate_images()
+{
+        gengerate_images
+}
+
+######################################################
+#   MAIN Function                                    #
+######################################################
+        stage1_environment_args_set_up $1
+    case $1 in
+    "")
+        stage2_download_source_code
+        stage3_build_source_code
+        stage4_generate_images
+    ;;
+    download)
+        stage2_download_source_code
+    ;;
+    build)
+        setup_environment
+        stage3_build_source_code
+    ;;
+    images)
+        setup_environment
+        stage4_generate_images
+    ;;
+    ddk)
+        setup_environment
+        mali_generate_android_mk
+        mali_build_ddk
+        build_mali_ko
+        build_gralloc
+    ;;
+    esac
+    echo ok success !!!
+    exit 0

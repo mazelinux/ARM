@@ -1,0 +1,26 @@
+Command
+source ./startup_android.sh
+./firefly_auto.sh
+
+-----------------------------------------------------------------
+--------------------------    OR    -----------------------------
+-----------------------------------------------------------------
+
+./stage1_download.sh 
+##Download
+
+./stage2_build_android.sh
+##build_Android_BSP
+
+./stage3_gen_image.sh
+##get image
+
+./stage4_flash_sd.sh
+##flash
+
+./stage2_build_ddk.sh
+##build_ddk
+./stage4_adb_push.sh
+##adb_push
+
+

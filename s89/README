@@ -1,0 +1,33 @@
+Command
+#for(shanghai)
+#mkdir /arm/tools
+
+#mount 10.164.1.34:/arm/tools /arm/tools
+###for startup_android.sh,CROSS_COMPLIE,SCONS...
+#mount 10.164.1.34:/arm/scratch /scratch
+###for android code,not necessary
+
+source ./startup_android.sh
+./android_4.4.2_r1_s89.sh
+
+-----------------------------------------------------------------
+--------------------------    OR    -----------------------------
+-----------------------------------------------------------------
+
+./stage1_download.sh 
+##Download
+
+./stage2_build_android.sh
+##build_Android_BSP
+
+./stage3_gen_image.sh
+##get image
+
+./stage4_flash_sd.sh
+##flash
+
+./stage2_build_ddk.sh
+##build_ddk
+
+./stage4_adb_push.sh
+##adb_push

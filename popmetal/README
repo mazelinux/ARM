@@ -1,0 +1,7 @@
+#By Maze ma
+#Maze.Ma@arm.com or maze_linux@outlook.com
+#This script to build linux_system on popmetal
+./startup_android.sh
+./stage1_unzip_tar.sh
+./stage2_build_linux.sh
+#cp system.img and kernel.img to flash
